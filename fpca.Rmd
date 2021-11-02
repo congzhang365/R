@@ -1,0 +1,316 @@
+---
+title: "Study1 YNQ (6 speakers)"
+---
+```{r libraries and paths, include = F}
+library(mgcv)
+library(lattice)
+library(itsadug)
+library(reshape2)
+library(ggpubr)
+library(dplyr)
+library(lme4)
+library(lmerTest)
+
+source("C:/Users/sprin/Documents/Tutorials and Workshops/manchester_curves_GAMM/FPCA_new/scripts/header.R")
+source("C:/Users/sprin/Documents/Tutorials and Workshops/manchester_curves_GAMM/FPCA_new/scripts/plot.pca.fd.corr.R")
+
+source("C:/Users/sprin/Documents/Tutorials and Workshops/manchester_curves_GAMM/FPCA_new/scripts/landmarkreg.nocurve.R")
+source("C:/Users/sprin/Documents/Tutorials and Workshops/manchester_curves_GAMM/FPCA_new/scripts/defint.fd.R")
+source("C:/Users/sprin/Documents/Tutorials and Workshops/manchester_curves_GAMM/FPCA_new/scripts/fdPar.R")
+
+source("C:/Users/sprin/Documents/R/scripts/load_data.R")
+source("C:/Users/sprin/Documents/R/scripts/draw_curves.R")
+
+```
+
+
+```{r}
+# set fig path and tone inventory
+fig_path = "C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/fig/"
+
+tone_inventory <- c("T1", "T2", "T3", "T4")
+for (l in tone_inventory){
+  tone_choice = l
+  print(l)
+
+
+#### load data
+  m.data <- load_data("C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/data/f0_m_60-350.txt", T)
+  f.data <- load_data("C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/data/f0_f_70-500.txt", T)
+  data <- rbind(f.data, m.data)
+
+  land <- read.table("C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/data/landmark.txt", sep = "\t", header = T)
+  
+
+#### subsetting by tone
+  data$tone <- as.factor(data$tone)
+  for (t in levels(data$tone)){
+    temp <- data %>%  filter(data$tone==t)
+    assign(t, temp)
+    }
+  
+  for (t in levels(data$tone)){
+    temp <- land %>%  filter(str_detect(land$filename, tone_choice))
+    assign(paste0(t, ".land"), temp)
+    }
+
+
+  curves <- get(tone_choice)
+  land <- get(paste0(tone_choice,".land"))
+  land <- tibble::rowid_to_column(land, "curveId")
+  
+  curves$filenameId <- NA
+  for (x in unique(curves$filename)){
+    curves$filenameId[curves$filename == x] <- land$curveId[land$filename == x] 
+  }
+  
+  
+  land$tune <- substr(as.character(land$filename), 21, 21)
+
+
+#### simplifying data frame: note f0.erb was kept instead of f0
+  curves_new <- curves[,c("filenameId", "time","f0.erb", "tune")]
+  colnames(curves_new) <- c("curveId", "time", "y", "tune")
+
+
+#### landmark reg
+  land_new<-land[,c("start", "landmark","end")]
+  #land_new<-land[,c("l1", "l2","l3")]
+  #It was originally hlambda=1e-8, wlambda =1e-8
+  reg <- landmarkreg.nocurve(ximarks=land_new %>% as.matrix,
+                             nhknots = 8, hlambda=1e-8, wlambda =1e-8)
+
+#### create common basis
+  nKnots <- 8 # try many# this was 12
+  lambda <- 10**6 # try many #this was 1e-6
+  curveRange <- reg$land %>% range  # KM: In the old script, this range is 0, mean_dur) --> this gives the same results
+  Lfdobj <- 3 # 2 + order of derivative expected to be used. E.g. order = 1 if you need 1st deriv # KM: We used 3 in the old script
+  nOrder <- 2 + Lfdobj  # a fixed relation about B-splines
+  nBasis <- nKnots + nOrder - 2 # a fixed relation about B-splines
+  basis <- create.bspline.basis(curveRange, nBasis, nOrder)
+  fdParObj <- fdPar(fdobj = basis, Lfdobj = Lfdobj, lambda = lambda)
+
+  coef <- curves_new %>% group_by(curveId) %>%
+    summarise(coef = {
+      range_i <- range(c(reg$hfunmat[,curveId], time) ) # prevent rounding errors
+      basis_i <- create.bspline.basis(range_i,nBasis,nOrder)
+      fdPar_i <- fdPar(basis_i,Lfdobj,lambda)
+      y_nonreg_fd <- smooth.basis(time,y,fdPar_i)$fd
+      # the next line is illustrated in notes/landmark_reg.pdf
+      c(smooth.basis(reg$x, eval.fd(reg$hfunmat[,curveId[1]], y_nonreg_fd),fdParObj)$fd$coefs)
+    },
+    coefId = seq_len(nBasis)) %>% # coefId to make pivot_wider work (formerly 'spread') 
+    # fd() requires coef to be a nBasis-by-nCurves matrix
+    pivot_wider(names_from = curveId, values_from = coef) %>%
+    #select(-coefId) %>%
+    #select(!coefId) %>%
+    as.matrix
+
+  coef<-coef[,-1]
+  y_fd = fd(coef=coef, basisobj=basis) # all curves in one fd object
+  
+
+#### FPCA
+  lambda_pca <- lambda 
+  pcafdPar  <- fdPar(fdobj = basis, Lfdobj = 2, lambda = lambda_pca) # here Lfdobj = 2 since we don't need derivatives of PC curves.
+  y_pcafd <- pca.fd(y_fd, nharm=2, pcafdPar) # compute first 2 PCs ## change to nharm=3 if 3 PCs are needed
+  
+  # familiarise with pca.fd object
+  y_pcafd %>% names 
+  # "harmonics" stands for PCs
+  # "scores" can be extracted directly, but for higher dim curves use getPCscores (because of a bug in fda)
+  # KM: scores<- as.data.frame(y_pcafd$score)
+  # KM: scores_2<-as.data.frame(getPCscores(y_pcafd))
+  y_pcafd$varprop # percentage of explained variance by each PC
+  
+  # gather PC scores - change to paste0("s", 1:3) if 3 PCs are needed
+  PCscores <- y_pcafd %>% getPCscores %>% `colnames<-`( paste0("s", 1:2)) %>% as_tibble %>%
+    # curveId and Category corresponding to PC scores
+    # (make sure there are no reorderings along the way!)
+    bind_cols(., (curves_new %>% distinct_at(vars(curveId, tune)))) 
+
+#### Match fPCA scores with meta data
+  curves.pc <- merge(PCscores, curves, by.x = c("curveId", "tune"), by.y = c("filenameId", "tune"))
+  all.info <- curves.pc %>% distinct(curveId, .keep_all = T)
+  names(all.info)[3:4] <- c("PC1", "PC2")
+  assign(paste0(tone_choice, ".all.info"), all.info)
+
+
+#### PLOTS
+  
+###### Box plots for PC1 and PC2
+  ggplot(PCscores) +
+    aes(x=tune, y = s1, fill = tune) +
+    geom_boxplot() +
+    theme_light() +
+    theme(text = element_text(size = 30),
+          legend.position = "bottom") + ylab("PC1")+ 
+      scale_fill_manual(values=c("#7373FF", "#FF7373"))
+  ggsave(filename=paste0(fig_path, tone_choice, "_boxplot_pc1.png"), device=pdf(), width=15, height=15, units="cm")
+  # dev.off()
+  
+  ggplot(PCscores) +
+    aes(x = tune, y = s2, fill = tune) +
+    geom_boxplot() +
+    theme_light() +
+    theme(text = element_text(size = 30),
+          legend.position = "bottom") + ylab("PC2")+ 
+      scale_fill_manual(values=c("#7373FF", "#FF7373")) +
+    # scale_fill_grey(start = 0.35)
+  ggsave(filename=paste0(fig_path, tone_choice, "_boxplot_pc2.png"), device=pdf(), width=15, height=15, units="cm")
+  # dev.off()
+  
+  
+###### Traditional PC curves
+  png(paste0(fig_path, tone_choice,"_PCs.png"),width=16,height=18, units="cm", res=300)
+  op <- par(mfrow=c(2,1))
+  plot.pca.fd.corr(y_pcafd, nx=30,xlab = 'time',ylab=c('normalized f0'))#, pcweight = 7)#, expand = 33)
+  #title(xlab="time", ylab="normalised f0")
+  abline(v=reg$land[2], lty = "dotted",lwd = 2)
+  par(op)
+  dev.off()
+  
+###### New gradient PC curves
+  # plot PC scores effect using ggplot (nicer but harder)
+  #changed from 0,2 (that was the length of all the other curves in the example)
+  tx <- seq(0, reg$land[3], length.out = 35) # re-sampling smooth curves at regular intervals
+  # compute st dev of PC scores, will plot variation -/+ 1 st dev
+  sdScores <- y_pcafd %>% getPCscores %>% apply(2, sd) 
+  # construct example curves by applying reconstruction formula
+  # change to PC = 1:3 if 3 PCs are needed
+  PCcurves <- expand_grid(PC = 1:2,
+                          fractionOfStDev = seq(-1, 1, by=.25)) %>%
+    group_by(PC, fractionOfStDev) %>%
+    summarise(time = tx,
+              # linear combination of spline coefs of mean + score * PC curve
+              value = (y_pcafd$meanfd$coefs[,1] + # mean 
+                         fractionOfStDev * sdScores[PC] * # PC score
+                         y_pcafd$harmonics$coefs[,PC]) %>% # PC curve
+                fd(coef = ., basisobj = y_pcafd$meanfd$basis) %>% # make it a fd object
+                eval.fd(tx, .) %>% # sample it at time = tx
+                as.numeric) # otherwise you get a matrix as column (dunno why)
+
+  # actual plot
+  PC_labeller <- as_labeller(function(x) paste0('PC', x))
+  p.pc1_pc2 <- ggplot(PCcurves) +
+    aes(x = time, y = value, group = fractionOfStDev, color = fractionOfStDev) +
+    geom_line() +
+    scale_color_gradient2(low = "blue", mid = "grey", high = "orangered") +
+    facet_grid(PC ~ .,
+               scales = "free_y",
+               labeller = labeller(PC = PC_labeller)) +
+    labs(color = expression(frac(s[k], sigma[k]))) +
+    geom_line(data = PCcurves %>% filter(fractionOfStDev == 0), color = 'black', size = 1.5) +
+    xlab("Normalised time") +
+    ylab("y") +
+    geom_vline(xintercept=reg$land[2])+
+    ggtitle("FPCA") +
+    theme_light() +
+    theme(text = element_text(size = 30),
+          legend.text=element_text(size=13),
+          legend.position = "bottom")
+  p.pc1_pc2
+  ggsave(filename=paste0(fig_path, tone_choice, "_pc1_pc2.png"), device=pdf(), width=40, height=30, units="cm")
+  
+  # dev.off()
+  
+###### Average curves
+  duration <- as.vector(with(curves, tapply(time,filenameId,max)))
+  # get a vector with tune for each token
+  tune <- as.vector(with(curves, tapply(as.character(tune),filenameId,"[",1)))
+  
+  png(paste0(fig_path, tone_choice, "_average_curves.png"),width=16,height=11.4, units="cm", res=200)
+  #par(mfrow=c(1,1))
+  plot(c(0,mean(duration)),c(3,9),tune='n',xlab='Normalised time',ylab='F0 (ERB)',main = '',las=1,cex.axis=1.5,cex.lab=1.5)
+  
+  # draw tune Q
+  pcafd_Q <- pca.fd(y_fd[tune=="Q"], nharm=2, pcafdPar)
+  lines(pcafd_Q$meanfd, col = "#FF7373", alpha =0.5, lwd =3, lty =1)
+  
+  # draw tune S
+  pcafd_S <- pca.fd(y_fd[tune=="S"], nharm=2, pcafdPar)
+  lines(pcafd_S$meanfd, col = "#7373FF", lwd =3, lty = 2)
+  # add legend and landmark
+  legend(-0.01,9,c("Q","S"),lty=c(1,2), lwd=c(2.9,2.5), col=c("#FF7373","#7373FF"))
+  abline(v=reg$land[2], lty = "dotted",lwd = 2)
+  
+  dev.off()
+}
+```
+
+
+```{r}
+# ###### lmer
+#  
+
+
+tone_choice = "T1"
+  m.pc1.1 <- lmer(PC1 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.pc1.2 <- lmer(PC1 ~ tune + (1|speaker) , data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  
+  m.result1 <- anova(m.pc1.2)
+  m.result1
+  assign(paste0(t, ".m.pc1"), m.result1)
+  
+  m.pc2.1 <- lmer(PC2 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.pc2.2 <- lmer(PC2 ~ tune + (1|speaker), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+
+  m.result2 <- anova(m.pc2.2)
+  m.result2
+  assign(paste0(t, ".m.pc2"), m.result2)
+
+  
+tone_choice = "T2"
+  m.pc1 <- lmer(PC1 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.result1 <- anova(m.pc1)
+  m.result1
+  assign(paste0(t, ".m.pc1"), m.result1)
+  m.pc2 <- lmer(PC2 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.result2 <- anova(m.pc2)
+  m.result2
+  assign(paste0(t, ".m.pc2"), m.result2)
+  
+  
+tone_choice = "T3"
+  m.pc1 <- lmer(PC1 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.result1 <- anova(m.pc1)
+  m.result1
+  assign(paste0(t, ".m.pc1"), m.result1)
+  m.pc2 <- lmer(PC2 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.result2 <- anova(m.pc2)
+  m.result2
+  assign(paste0(t, ".m.pc2"), m.result2)
+  
+  
+tone_choice = "T4"
+  m.pc1 <- lmer(PC1 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.result1 <- anova(m.pc1)
+  m.result1
+  assign(paste0(t, ".m.pc1"), m.result1)
+  m.pc2 <- lmer(PC2 ~ tune + (1|speaker) +  (1 |utterance), data = get(paste0(tone_choice, ".all.info")), REML=FALSE)
+  m.result2 <- anova(m.pc2)
+  m.result2
+  assign(paste0(t, ".m.pc2"), m.result2)
+  
+  
+all.info <- rbind(T1.all.info, T2.all.info, T3.all.info, T4.all.info)
+all.info$tone_register <- ifelse(all.info$tone=="T1"|all.info$tone=="T3", "L", "H")
+all.info$tone_shape <- ifelse(all.info$tone=="T1"|all.info$tone=="T4", "HL", "LH")
+
+  m.all.pc1 <- lmer(PC1 ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), data = all.info, REML=FALSE)
+  anova(m.all.pc1)
+  
+  m.all.pc2 <- lmer(PC2 ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), data = all.info, REML=FALSE)
+  m.all.pc2 <- lmer(PC2 ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) , data = all.info, REML=FALSE)
+  
+  
+  anova(m.all.pc2)
+plot(allEffects(m.all.pc2), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+  
+```
+
+
+
+
+

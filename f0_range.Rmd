@@ -1,0 +1,193 @@
+---
+title: "F0 range"
+output: html_notebook
+---
+
+
+```{r}
+library(ggpubr)
+library(dplyr)
+library(tidyr)
+library(viridis)
+library(soundgen)
+library(data.table)
+```
+
+
+```{r load data: individual files}
+setwd("C:/Users/sprin/SPRINT Dropbox/Academic Research/Production_Pilots/Analysis/Data/Praat_Data/raw")
+
+#create a list of the files from your target directory
+file_list <- list.files(path="C:/Users/sprin/SPRINT Dropbox/Academic Research/Production_Pilots/Analysis/Data/Praat_Data/raw")
+
+#initiate a blank data frame, each iteration of the loop will append the data from the given file to this variable
+data <- data.frame()
+
+#had to specify columns to get rid of the total column
+for (i in 1:length(file_list)){
+  temp_data <- fread(file_list[i], stringsAsFactors = F) #read in files using the fread function from the data.table package
+  data <- rbindlist(list(data, temp_data), use.names = T) #for each iteration, bind the new data to the building dataset
+}
+```
+
+
+```{r load data: one or two summary file(s)}
+data <- read.table("C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_DisyllabicQ/disyl/script/raw_f0.txt", header = T, stringsAsFactors = T)
+
+```
+
+
+```{r process data: SPRINT}
+# data <- data %>% 
+#   separate(filename, c("task", "speaker", 'utterance', "word", "focus"), sep = "_", remove = F)
+# 
+# 
+# data$gender <- ifelse(data$speaker=="LP01"|data$speaker=="LP03"|data$speaker=="LP09", "M", "F")
+# 
+# data$f0 <- ifelse(data$f0=="NaN", NA, data$f0)
+# 
+# data <- data %>% mutate_if(is.character, as.factor)
+```
+
+
+```{r process data: ci}
+data <- data %>% 
+  separate(filename, c("speaker", "utterance", 'info'), sep = "_", remove = F)
+
+data$gender <- ifelse(data$speaker=="SJ101"|data$speaker=="SJ106"|data$speaker=="SJ110", "M", "F")
+
+
+data$category <- substr(data$info,1,2)
+data$tone <- substr(data$info,3,6)
+data$version <- substr(data$info,7,8)
+data$rep <- substr(data$info,9,10)
+data$type <- substr(data$info,11,11)
+
+data <- data %>% mutate_if(is.character, as.factor)
+
+```
+
+
+```{r original range}
+
+original_range_speaker <- data %>% group_by(speaker) %>% summarise(min=floor(min(f0, na.rm = T)), max=ceiling(max(f0, na.rm = T)), mean = mean(f0, na.rm = T))
+original_range_speaker
+
+original_range_gender <- data %>% group_by(gender) %>% summarise(min=floor(min(f0, na.rm = T)), max=ceiling(max(f0, na.rm = T)), mean = mean(f0, na.rm = T))
+original_range_gender
+
+p.original <- gghistogram(data, x="f0", 
+                          fill = "type", facet.by = c("speaker"),
+                          add = c("median"),
+                          add_density = T, bins = 30, nrow=1, xlim=c(50,500))
+
+p.original
+```
+
+
+```{r method 1: remove +/- 1.8sd}
+res = list()
+
+for (i in 1:nlevels(data$speaker)){
+  tmp = data[data$speaker==levels(data$speaker)[i], ]
+  sds = sd(tmp$f0, na.rm = T)
+  means = mean(tmp$f0, na.rm = T)
+  tmp = tmp[tmp$f0 > means-1.8*sds & tmp$f0 < means+1.8*sds,]
+  res[[i]] = tmp
+}
+
+data.new = do.call(rbind,res)
+data.new <- subset(data.new, data.new$filename!="NA")
+
+p.refined <- gghistogram(data.new, "f0", fill = "type", facet.by = "speaker",
+            add = c("median"),
+            add_density = T, bins = 30, nrow=1, xlim = c(50, 500))
+p.refined            
+
+ggarrange(p.original, p.refined, nrow=2, align = c("hv"),label.x = 1,
+          label.y = 1)
+            
+
+new_range_speaker <- data.new %>% group_by(speaker) %>% summarise(min=floor(min(f0, na.rm = T)), max=ceiling(max(f0, na.rm = T)), mean = mean(f0, na.rm = T))
+new_range_speaker
+
+new_range_gender <- data.new %>% group_by(gender) %>% summarise(min=floor(min(f0, na.rm = T)), max=ceiling(max(f0, na.rm = T)), mean = mean(f0, na.rm = T))
+new_range_gender
+
+```
+
+
+```{r}
+
+# Checking only for column a. Top 5% and bottom 5% is removed 
+data.new <- data %>% filter(between(f0, quantile(f0, .05, na.rm = T), quantile(f0, .95, na.rm = T)))
+
+p.refined <- gghistogram(data.new, "f0", fill = "type", facet.by = "speaker",
+            add = c("median"),
+            add_density = T, bins=30, nrow=1, xlim = c(50, 500))
+p.refined            
+
+ggarrange(p.original, p.refined, nrow=2, align = c("hv"),label.x = 1,
+          label.y = 1)
+            
+
+new_range_speaker <- data.new %>% group_by(speaker) %>% summarise(min=floor(min(f0, na.rm = T)), max=ceiling(max(f0, na.rm = T)), mean = mean(f0, na.rm = T))
+new_range_speaker
+
+new_range_gender <- data.new %>% group_by(gender) %>% summarise(min=floor(min(f0, na.rm = T)), max=ceiling(max(f0, na.rm = T)), mean = mean(f0, na.rm = T))
+new_range_gender
+```
+
+
+
+
+```{r method 3:}
+# calculate mode
+getmode <- function(v) {
+  uniqv <- unique(v)
+  uniqv <- na.omit(uniqv)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+
+f0_range <- function(f0) {
+  mode.semitone <- getmode(soundgen::HzToSemitones(f0))
+
+  max.hz <- as.integer(soundgen::semitonesToHz(mode.semitone+12))
+  min.hz <- as.integer(soundgen::semitonesToHz(mode.semitone-8))
+  
+  f0_range.list <- c(min.hz, max.hz)
+  f0_range.str <- paste(min.hz, max.hz, sep = "-")
+  print(f0_range.str)
+  return(f0_range.list)
+}
+
+
+# by speaker:
+data$speaker <- as.factor(data$speaker)
+
+new_range_speaker = data.frame()
+for (i in levels(data$speaker)){
+  data.speaker <- subset(data, data$speaker== i)
+  new.range <- f0_range(data.speaker$f0)
+  new.range <- c(i, new.range)
+  new_range_speaker <- rbind(new_range_speaker, new.range)
+  names(new_range_speaker) <- c("speaker", "min", "max")
+}
+new_range_speaker
+
+# by gender:
+data$gender <- as.factor(data$gender)
+
+new_range_gender = data.frame()
+for (i in levels(data$gender)){
+  data.gender <- subset(data, data$gender== i)
+  new.range <- f0_range(data.gender$f0)
+  new.range <- c(i, new.range)
+  new_range_gender <- rbind(new_range_gender, new.range)
+  names(new_range_gender) <- c("gender", "min", "max")
+}
+new_range_gender
+```
+
+

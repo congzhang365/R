@@ -1,0 +1,999 @@
+---
+title: "Study1 YNQ (6 speakers)"
+author: "Cong Zhang"
+date: "`r Sys.Date()`"
+
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+    number_sections: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_tune: inline
+---
+
+```{r libraries and paths, include = F}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(reshape2)
+library(ggpubr)
+library(plotrix)    # std error function
+library(plyr)       # revalue
+library(dplyr)      # group_by and summarize function
+library(lme4)       # linear mixed effect model
+library(lmerTest)
+library(kableExtra)
+library(report)
+library(effects)
+source("C:/Users/sprin/Documents/R/scripts/load_data.R")
+source("C:/Users/sprin/Documents/R/scripts/draw_curves.R")
+source("C:/Users/sprin/Documents/R/scripts/pirate_plot.R")
+
+```
+
+
+```{r}
+# set fig path and tone inventory
+fig_path = "C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/fig/"
+
+#### load data
+  m.data <- load_mean_data("C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/data/mean_f0_m.txt")
+  f.data <- load_mean_data("C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/data/mean_f0_f.txt")
+  data <- rbind(f.data, m.data)
+  data$text[data$text=="aa"] <- "a"
+  
+  str(data)
+  data$dur <- data$EndTime - data$StartTime
+  
+  data$tone_register <- ifelse(data$tone=="T1"|data$tone=="T3", "L", "H")
+  data$tone_shape <- ifelse(data$tone=="T1"|data$tone=="T4", "HL", "LH")
+
+  
+```
+
+
+```{r subset onset and rhyme data}
+  data$syl_label <- as.factor(ifelse(data$text=="m", "O", "R"))
+  ## divide data into onset and rhyme
+  onset.data <- subset(data, syl_label == "O")
+  rhyme.data <- subset(data, syl_label == "R")
+```
+
+
+```{r remove f0 range outliers}
+# remove f0 range outliers
+
+rhyme.HL <- rhyme.data %>% filter(tone=="T1"|tone=="T4")
+rhyme.LH <- rhyme.data %>% filter(tone=="T2"|tone=="T3")
+
+rhyme.HL$outlier <- ifelse((rhyme.HL$max.f0.time-rhyme.HL$min.f0.time < 0), "ok", "outlier")
+rhyme.LH$outlier <- ifelse((rhyme.LH$max.f0.time-rhyme.LH$min.f0.time > 0), "ok", "outlier")
+
+rhyme.data <- rbind(rhyme.HL, rhyme.LH)
+rhyme.data$range.f0 <- ifelse(rhyme.data$outlier == "outlier", NA, rhyme.data$range.f0)
+rhyme.data$range.f0.erb <- ifelse(rhyme.data$outlier == "outlier", NA, rhyme.data$range.f0.erb)
+
+```
+
+
+<a href="#top">Back to top</a>
+
+# Descriptive data and summary tables
+
+## Mean F0
+```{r Mean F0}
+## Mean F0: onset
+onset_production_f0.mean <- onset.data %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.mean=mean(mean.f0.erb,na.rm=TRUE),
+                   sd=sd(mean.f0.erb,na.rm=TRUE),
+                   se=std.error(mean.f0.erb,na.rm=TRUE),
+                   f0.max=max(mean.f0.erb,na.rm=TRUE), 
+                   f0.min=min(mean.f0.erb,na.rm=TRUE))
+
+onset_production_f0.mean
+
+# kable(onset_production_f0.mean) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/onset_production_f0.mean.doc")
+
+
+## Mean F0: rhyme
+rhyme_production_f0.mean <- rhyme.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.mean=mean(mean.f0.erb,na.rm=TRUE),
+                   sd=sd(mean.f0.erb,na.rm=TRUE),
+                   se=std.error(mean.f0.erb,na.rm=TRUE),
+                   f0.max=max(mean.f0.erb,na.rm=TRUE), 
+                   f0.min=min(mean.f0.erb,na.rm=TRUE))
+rhyme_production_f0.mean
+# kable(rhyme_production_f0.mean) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/rhyme_production_f0.mean.doc")
+
+```
+
+<a href="#top">Back to top</a>
+
+## F0 range
+```{r F0 range}
+## F0 range: onset
+
+onset_production_f0.range <- onset.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.range=mean(range.f0.erb,na.rm=TRUE),
+                   sd=sd(range.f0.erb,na.rm=TRUE),
+                   se=std.error(range.f0.erb,na.rm=TRUE),
+                   f0.max=max(range.f0.erb,na.rm=TRUE), 
+                   f0.min=min(range.f0.erb,na.rm=TRUE))
+
+onset_production_f0.range
+
+# kable(onset_production_f0.range) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/onset_production_f0.range.doc")
+
+
+## F0 Range: rhyme
+rhyme_production_f0.range <- rhyme.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.range=mean(range.f0.erb,na.rm=TRUE),
+                   sd=sd(range.f0.erb,na.rm=TRUE),
+                   se=std.error(range.f0.erb,na.rm=TRUE),
+                   f0.max=max(range.f0.erb,na.rm=TRUE), 
+                   f0.min=min(range.f0.erb,na.rm=TRUE))
+rhyme_production_f0.range
+# kable(rhyme_production_f0.range) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/rhyme_production_f0.range.doc")
+
+```
+
+<a href="#top">Back to top</a>
+
+## Max F0
+```{r Max F0}
+## Max F0: onset
+onset_production_f0.max <- onset.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.max=mean(max.f0,na.rm=TRUE),
+                   sd=sd(max.f0,na.rm=TRUE),
+                   se=std.error(max.f0,na.rm=TRUE),
+                   f0.max=max(max.f0,na.rm=TRUE), 
+                   f0.min=min(max.f0,na.rm=TRUE))
+
+onset_production_f0.max
+
+# kable(onset_production_f0.max) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/onset_production_f0.max.doc")
+
+
+
+## Max F0: rhyme
+rhyme_production_f0.max <- rhyme.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.max=mean(max.f0,na.rm=TRUE),
+                   sd=sd(max.f0,na.rm=TRUE),
+                   se=std.error(max.f0,na.rm=TRUE),
+                   f0.max=max(max.f0,na.rm=TRUE), 
+                   f0.min=min(max.f0,na.rm=TRUE))
+rhyme_production_f0.max
+# kable(rhyme_production_f0.max) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/rhyme_production_f0.max.doc")
+
+```
+
+<a href="#top">Back to top</a>
+
+## Min F0
+```{r Min F0}
+## Min F0: onset
+onset_production_f0.min <- onset.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.min=mean(min.f0,na.rm=TRUE),
+                   sd=sd(min.f0,na.rm=TRUE),
+                   se=std.error(min.f0,na.rm=TRUE),
+                   f0.max=max(min.f0,na.rm=TRUE), 
+                   f0.min=min(min.f0,na.rm=TRUE))
+
+onset_production_f0.min
+
+# kable(onset_production_f0.min) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/onset_production_f0.min.doc")
+
+
+## Min F0: rhyme
+rhyme_production_f0.min <- rhyme.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(f0.min=mean(min.f0,na.rm=TRUE),
+                   sd=sd(min.f0,na.rm=TRUE),
+                   se=std.error(min.f0,na.rm=TRUE),
+                   f0.max=max(min.f0,na.rm=TRUE), 
+                   f0.min=min(min.f0,na.rm=TRUE))
+rhyme_production_f0.min
+# kable(rhyme_production_f0.min) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/rhyme_production_f0.min.doc")
+
+```
+
+<a href="#top">Back to top</a>
+
+## Duration
+```{r Duration}
+## Duration: onset
+onset_production_duration <- onset.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(length=mean(duration,na.rm=TRUE),
+                   sd=sd(duration,na.rm=TRUE),
+                   se=std.error(duration,na.rm=TRUE),
+                   f0.max=max(duration,na.rm=TRUE), 
+                   f0.min=min(duration,na.rm=TRUE))
+
+onset_production_duration
+
+# kable(onset_production_duration) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/onset_production_duration.doc")
+
+
+## Duration: rhyme
+rhyme_production_duration <- rhyme.data %>% 
+  dplyr::filter(tune %in% c("S","Q")) %>% 
+  dplyr::group_by(tune,tone) %>% 
+  dplyr::summarize(length=mean(duration,na.rm=TRUE),
+                   sd=sd(duration,na.rm=TRUE),
+                   se=std.error(duration,na.rm=TRUE),
+                   f0.max=max(duration,na.rm=TRUE), 
+                   f0.min=min(duration,na.rm=TRUE))
+rhyme_production_duration
+# kable(rhyme_production_duration) %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F)%>%
+#   save_kable(file = "./results/descriptive/rhyme_production_duration.doc")
+
+```
+
+# Pirate plots: mean values and distribution
+```{r pirate plots, include= FALSE, echo=FALSE}
+###########################################################
+########################## plots ##########################
+###########################################################
+# change in source("C:/Users/sprin/Documents/R/scripts/pirate_plot.R") for colour settings
+# use pdf_pirate in source("C:/Users/sprin/Documents/R/scripts/pirate_plot.R") to generate pdf
+
+fig_path = "C:/Users/sprin/Dropbox (Personal)/Journal_Article/TJ_YNQ/Study_1/fig/pirate/"
+
+onset.data$tune <- factor(onset.data$tune, levels = c("S", "Q"))
+rhyme.data$tune <- factor(rhyme.data$tune, levels = c("S", "Q"))
+
+#### meanf0: rhyme
+output_file <- paste0(fig_path, "zi_Q_rhyme_meanF0.png")
+input_data <- rhyme.data
+dv <- rhyme.data$mean.f0.erb
+Tune <- rhyme.data$tune
+Tone<- rhyme.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "mean f0 (ERB)"
+y_lim <- c(0,9)
+lab_location<- 0.2
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+#### meanf0: onset
+output_file <- paste0(fig_path, "zi_Q_onset_meanF0.png")
+input_data <- onset.data
+dv <- onset.data$mean.f0.erb
+Tune <- onset.data$tune
+Tone<- onset.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "mean f0 (ERB)"
+y_lim <- c(0,9)
+lab_location<- 0.2
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+
+#### f0Range: rhyme
+output_file <- paste0(fig_path, "zi_Q_rhyme_f0range.png")
+input_data <- rhyme.data
+dv <- rhyme.data$range.f0.erb
+Tune <- rhyme.data$tune
+Tone<- rhyme.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "f0 range (ERB)"
+y_lim <- c(0,9)
+lab_location<- 0.2
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+#### f0Range: onset
+output_file <- paste0(fig_path, "zi_Q_onset_f0range.png")
+input_data <- onset.data
+dv <- onset.data$range.f0.erb
+Tune <- onset.data$tune
+Tone<- onset.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "f0 range (ERB)"
+y_lim <- c(0,9)
+lab_location<- 0.2
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+#### duration: rhyme
+output_file <- paste0(fig_path, "zi_Q_rhyme_duration.png")
+input_data <- rhyme.data
+dv <- rhyme.data$duration*1000
+Tune <- rhyme.data$tune
+Tone<- rhyme.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "duration (ms)"
+y_lim <- c(0,550)
+lab_location<- 10
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+#### duration: onset
+output_file <- paste0(fig_path, "zi_Q_onset_duration.png")
+input_data <- onset.data
+dv <- onset.data$duration*1000
+Tune <- onset.data$tune
+Tone<- onset.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "duration (ms)"
+y_lim <- c(0,550)
+lab_location<- 10
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+#### maxf0: rhyme
+output_file <- paste0(fig_path, "zi_Q_rhyme_maxF0.png")
+input_data <- rhyme.data
+dv <- rhyme.data$max.f0.erb
+Tune <- rhyme.data$tune
+Tone<- rhyme.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "max f0 (ERB)"
+y_lim <- c(0,9)
+lab_location<- 0.2
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+
+#### minf0: rhyme
+output_file <- paste0(fig_path, "zi_Q_rhyme_minF0.png")
+input_data <- rhyme.data
+dv <- rhyme.data$min.f0.erb
+Tune <- rhyme.data$tune
+Tone<- rhyme.data$tone
+title <- ''
+x_lab <- "Tone × Tune"
+y_lab <- "min f0 (ERB)"
+y_lim <- c(0,9)
+lab_location<- 0.2
+lab_size <- 1.2
+
+pirate_png(output_file, input_data, dv, Tune, Tone, title, x_lab, y_lab, y_lim,lab_location, lab_size)
+
+
+```
+# LMER
+
+```{r subset data into onset and rhymes}
+## divide data into onset and rhyme
+onset.data <- subset(data, syl_label == "O")
+rhyme.data <- subset(data, syl_label == "R")
+
+```
+
+<a href="#top">Back to top</a>
+
+## MeanF0 
+
+
+### ----- MeanF0: onset-----
+```{r MeanF0:onset model, echo = T}
+# for random effects
+F0Mean.full <- lmer(mean.f0.erb ~ tone_register + tone_shape + tune + tune:tone_register + tune:tone_shape + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+F0Mean.mod1 <- lmer(mean.f0.erb ~ tone_register + tone_shape + tune + tune:tone_register + tune:tone_shape + (1+ tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+# final model
+F0Mean.mod <- F0Mean.mod1
+
+summary(F0Mean.mod)
+
+anova(F0Mean.mod)
+
+result_table <- as.data.frame(summary(F0Mean.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r MeanF0:onset summary, echo = T}
+F0Mean.mod%>% report()
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r MeanF0:onset anova, echo = T}
+report(anova(F0Mean.mod))
+plot(allEffects(F0Mean.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+
+
+<a href="#top">Back to top</a>
+
+### ----- MeanF0: rhyme-----
+```{r MeanF0:rhyme model, echo = T}
+# for random effects
+F0Mean.full <- lmer(mean.f0.erb ~ tone_register + tone_shape + tune + tune:tone_register + tune:tone_shape + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+F0Mean.mod1 <- lmer(mean.f0.erb ~ tone_register + tone_shape + tune + tune:tone_register + tune:tone_shape + (1+ tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+
+# final model
+F0Mean.mod <- F0Mean.mod1
+
+summary(F0Mean.mod)
+
+result_table <- as.data.frame(summary(F0Mean.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r MeanF0:rhyme summary, echo = T}
+F0Mean.mod%>% report()
+
+```
+
+Report - anova:
+
+```{r MeanF0:rhyme anova, echo = T}
+report(anova(F0Mean.mod))
+plot(allEffects(F0Mean.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+
+## F0range 
+
+### ----- F0range: onset-----
+```{r F0range:onset model, echo = T}
+# for random effects
+F0range.full <- lmer(range.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+F0range.mod1 <- lmer(range.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+F0range.mod2 <- lmer(range.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+
+# final model
+F0range.mod <- F0range.mod2
+
+summary(F0range.mod)
+
+result_table <- as.data.frame(summary(F0range.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r F0range:onset summary, echo = T}
+F0range.mod%>% report()
+
+```
+
+Report - anova:
+
+```{r F0range:onset anova, echo = T}
+report(anova(F0range.mod))
+plot(allEffects(F0range.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+<a href="#top">Back to top</a>
+
+### ----- F0range: rhyme-----
+```{r F0range:rhyme model, echo = T}
+# for random effects
+F0range.full <- lmer(range.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+F0range.mod1 <- lmer(range.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+# final model
+F0range.mod <- F0range.mod1
+
+summary(F0range.mod)
+
+result_table <- as.data.frame(summary(F0range.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r F0range:rhyme summary, echo = T}
+F0range.mod%>% report()
+
+```
+
+Report - anova:
+
+```{r F0range:rhyme anova, echo = T}
+report(anova(F0range.mod))
+plot(allEffects(F0range.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+
+<a href="#top">Back to top</a>
+
+## maxf0
+
+### ----- maxf0: onset-----
+
+```{r maxF0:onset model, echo = T}
+# for random effects
+Maxf0.full <- lmer(max.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+Maxf0.mod1 <- lmer(max.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+Maxf0.mod2 <- lmer(max.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+# final model
+Maxf0.mod <- Maxf0.mod1
+
+summary(Maxf0.mod)
+
+result_table <- as.data.frame(summary(Maxf0.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r maxF0:onset summary, echo = T}
+Maxf0.mod%>% report()
+
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r maxF0:onset anova, echo = T}
+report(anova(Maxf0.mod))
+plot(allEffects(Maxf0.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+<a href="#top">Back to top</a>
+
+### ----- maxf0: rhyme-----
+
+```{r maxF0:rhyme model, echo = T}
+# for random effects
+Maxf0.full <- lmer(max.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+Maxf0.mod1 <- lmer(max.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+# final model
+Maxf0.mod <- Maxf0.mod1
+
+summary(Maxf0.mod)
+
+result_table <- as.data.frame(summary(Maxf0.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r maxF0:rhyme summary, echo = T}
+Maxf0.mod%>% report()
+
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r maxF0:rhyme anova, echo = T}
+report(anova(Maxf0.mod))
+plot(allEffects(Maxf0.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+<a href="#top">Back to top</a>
+
+## minf0 
+
+
+### ----- minf0: onset-----
+
+```{r minF0:onset model, echo = T}
+# for random effects
+Minf0.full <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+Minf0.mod1 <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+Minf0.mod2 <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+# final model
+Minf0.mod <- Minf0.mod2
+
+summary(Minf0.mod)
+
+result_table <- as.data.frame(summary(Minf0.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r minF0:onset summary, echo = T}
+Minf0.mod%>% report()
+
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r minF0:onset anova, echo = T}
+report(anova(Minf0.mod))
+plot(allEffects(Minf0.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+<a href="#top">Back to top</a>
+
+### ----- minf0: rhyme-----
+
+```{r minF0:rhyme model, echo = T}
+# for random effects
+Minf0.full <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+Minf0.mod1 <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+Minf0.mod2 <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+Minf0.mod3 <- lmer(min.f0.erb ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker), rhyme.data, REML=FALSE)
+
+
+# final model
+Minf0.mod <- Minf0.mod3
+
+summary(Minf0.mod)
+
+result_table <- as.data.frame(summary(Minf0.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r minF0:rhyme summary, echo = T}
+Minf0.mod%>% report()
+
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r minF0:rhyme anova, echo = T}
+report(anova(Minf0.mod))
+plot(allEffects(Minf0.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), alpha=0.5))
+```
+
+<a href="#top">Back to top</a>
+
+## duration
+
+### ----- duration: onset-----
+```{r Duration:onset model, echo = T}
+# for random effects
+Duration.full <- lmer(duration ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+Duration.mod1 <- lmer(duration ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+Duration.mod2 <- lmer(duration ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1|speaker) +  (1 |utterance), onset.data, REML=FALSE)
+
+
+
+# final model
+Duration.mod <- Duration.mod2
+
+summary(Duration.mod)
+
+result_table <- as.data.frame(summary(Duration.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r Dur:onset summary, echo = T}
+Duration.mod%>% report()
+
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r Dur:onset anova, echo = T}
+report(anova(Duration.mod))
+plot(allEffects(Duration.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), lty=c("solid", "dotted"), alpha=0.5))
+```
+<a href="#top">Back to top</a>
+
+### ----- duration: rhyme-----
+
+```{r Duration:rhyme model, echo = T}
+# for random effects
+Duration.full <- lmer(duration ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tone_register:tune + tone_shape:tune + tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+Duration.mod1 <- lmer(duration ~ tone_register + tone_shape + tune + tone_register:tune + tone_shape:tune + (1+ tune|speaker) +  (1 |utterance), rhyme.data, REML=FALSE)
+
+# final model
+Duration.mod <- Duration.mod1
+
+summary(Duration.mod)
+
+result_table <- as.data.frame(summary(Duration.mod)$coef)
+
+for (i in 1:length(result_table[,5])){
+  if (result_table[i,5] < 0.05 & result_table[i,5] > 0.01){
+  result_table$sig[i] <- '*'
+  } else if (result_table[i,5]<0.01 & result_table[i,5] > 0.001){
+    result_table$sig[i] <- '**'
+  } else if (result_table[i,5]<0.001){
+    result_table$sig[i] <- '***'
+  }
+  else if (result_table[i,5] > 0.05){
+    result_table$sig[i] <- ''
+  }
+  
+  }
+
+
+
+kable(result_table)%>% 
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+
+
+```
+
+Report - summary:
+
+```{r Dur:rhyme summary, echo = T}
+Duration.mod%>% report()
+
+
+```
+significance of tone_shapeLH:tuneS tells you that difference between Q and S are different for LH tones and HL tones
+
+
+Report - anova:
+
+```{r Dur:rhyme anova, echo = T}
+report(anova(Duration.mod))
+plot(allEffects(Duration.mod), multiline=TRUE, ci.style="bars",
+     lines=list(col=c("red", "blue"), lty=c("solid", "dotted"), alpha=0.5))
+```
+
